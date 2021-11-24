@@ -46,7 +46,9 @@ export default {
       if (sT === "" || sT.length === 0) {
         return;
       }
-      this.search(sT, 1);
+      if (this.$props.justGo === undefined) {
+        this.search(sT, 1);
+      }
       this.$router
         .push({
           path: `/papers`,
@@ -84,6 +86,16 @@ export default {
           final: () => {
             this.hideLoading();
           },
+        }
+      );
+      this.ax.post(
+        this.config.testEnvBackEndUrl + "icde/search-paper",
+        {
+          query: sT,
+          is_login: this.$store.state.isLogin,
+        },
+        {
+          isAuth: this.$store.state.isLogin,
         }
       );
     },

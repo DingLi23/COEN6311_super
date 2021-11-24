@@ -20,7 +20,7 @@
             v-if="!hasDetail"
           ></v-skeleton-loader>
           <v-card-title v-else key="card-title">
-            <span>{{ paper.title }}</span></v-card-title
+            <span>{{ paperTitle }}</span></v-card-title
           >
         </transition>
       </div>
@@ -162,9 +162,15 @@
             </v-btn>
             <v-btn
               color="cyan"
-              class="ma-2 white--text mr-0"
+              :class="{
+                'ma-2': true,
+                'white--text': true,
+                'mr-0': true,
+                animate__animated: true,
+                animate__bounceIn: sharedNumberAnimate,
+              }"
               style="padding: 0"
-              min-width="20"
+              min-width="30"
               small
             >
               {{ paperOperatedData.shared }}
@@ -174,12 +180,75 @@
               small
               class="ma-2 white--text ml-1"
               color="cyan"
+              @click="
+                () => {
+                  teamListShow = !teamListShow;
+                }
+              "
             >
               <span>Share</span>
               <v-icon small color="white" class="ml-2"
                 >mdi-share-variant</v-icon
               >
             </v-btn>
+            <transition name="fade" mode="out-in">
+              <v-card
+                key="teamList"
+                v-if="teamListShow"
+                :class="{
+                  team_list_class: true,
+                  unselectable: true,
+                }"
+                @mouseleave="
+                  () => {
+                    teamListShow = false;
+                  }
+                "
+              >
+                <div v-if="teamList.length > 0">
+                  <v-btn
+                    small
+                    tile
+                    class="team_item"
+                    :key="team.team_id"
+                    v-for="team in teamList"
+                    dense
+                    :disabled="team.shared"
+                    @click="shareThisPaperTo(team.team_id, team.name)"
+                  >
+                    <span style="color: black !important">{{ team.name }}</span>
+                    <v-spacer></v-spacer>
+                    <transition name="small-slide-r-fade" mode="out-in">
+                      <v-icon
+                        key="shard-close"
+                        v-if="!team.shared"
+                        class="ml-3"
+                        small
+                        color="gray darken-2"
+                      >
+                        mdi-close-outline
+                      </v-icon>
+                      <v-icon
+                        v-else
+                        key="shard-check"
+                        class="ml-3"
+                        small
+                        style="color: green !important"
+                      >
+                        mdi-check-outline
+                      </v-icon>
+                    </transition>
+                  </v-btn>
+                </div>
+                <v-list-item v-else dense dark>
+                  <v-list-item-content>
+                    <v-list-item-title
+                      >You do not joined any team</v-list-item-title
+                    >
+                  </v-list-item-content>
+                </v-list-item>
+              </v-card>
+            </transition>
           </div>
           <div v-else key="action-before-user-data">
             <v-skeleton-loader
@@ -223,9 +292,10 @@
           </v-card-text>
           <v-card-text class="clearfix pt-1">
             <v-btn
+              class="white--text"
               style="float: right"
               small
-              color="success"
+              color="pink lighten-2"
               @click="addComment"
               :disabled="!isLogin"
               >Submit</v-btn
@@ -247,7 +317,7 @@
             type="paragraph"
           ></v-skeleton-loader>
         </div>
-        <div v-else>
+        <div style="padding-bottom: 2rem" v-else>
           <v-divider></v-divider>
           <div v-for="comment in paperComments" :key="comment.id" class="">
             <div class="commenter">
@@ -273,6 +343,7 @@ import "animate.css";
 
 export default {
   data: () => ({
+    teamListShow: false,
     comment: "",
     paper: {
       paperId: "",
@@ -295,10 +366,14 @@ export default {
     userActionLoaded: false,
     paperCommentFetched: false,
     paperId: "",
+    paperTitle: "",
     userAttitudeExist: false,
     userLikeThisPaper: false,
     likeNumberAnimate: false,
     dislikeNumberAnimate: false,
+    sharedNumberAnimate: false,
+    teamList: [],
+    teamListShowLock: false,
   }),
   methods: {
     getDetail() {
@@ -361,7 +436,7 @@ export default {
     putAttitude(like) {
       this.ax.post(
         this.config.testEnvBackEndUrl + "paper/like",
-        { paper_id: this.paperId, like },
+        { paper_id: this.paperId, like, paper_title: this.paper.title },
         {
           isAuth: true,
           success: () => {
@@ -399,6 +474,17 @@ export default {
     },
     newTab() {
       window.open(this.paper.url, "_blank").focus();
+      this.ax.post(
+        this.config.testEnvBackEndUrl + "icde/go-paper-origin",
+        {
+          is_login: this.$store.state.isLogin,
+          paper_id: this.paperId,
+          paper_title: this.paperTitle,
+        },
+        {
+          isAuth: this.$store.state.isLogin,
+        }
+      );
     },
     addComment() {
       this.ax.post(
@@ -406,11 +492,16 @@ export default {
         {
           paper_id: this.paperId,
           comment: this.comment,
+          paper_title: this.paper.title,
         },
         {
           isAuth: true,
           success: (response) => {
-            console.log(response);
+            const code = response.data.code;
+            if (code === 0) {
+              this.successToast("Comment success.");
+              this.comment = "";
+            }
           },
           final: () => {
             this.getPaperComments();
@@ -440,6 +531,51 @@ export default {
             }px`
           );
       }, 350);
+    },
+    fetchTeamListAndSharedData(cb) {
+      this.ax.get(
+        this.config.testEnvBackEndUrl + "icde/shared-team-list",
+        {
+          paper_id: this.paperId,
+        },
+        {
+          isAuth: true,
+          success: (response) => {
+            const code = response.data.code;
+            const body = response.data.body;
+            if (code === 0) {
+              this.teamList = [...body.joined_team_list];
+              this.paperOperatedData.shared = body.total_shared;
+              if (cb !== undefined) cb();
+            }
+          },
+        }
+      );
+    },
+    shareThisPaperTo(team_id, team_name) {
+      this.ax.post(
+        this.config.testEnvBackEndUrl + "icde/share-paper",
+        {
+          paper_id: this.paperId,
+          paper_title: this.paperTitle,
+          team_id,
+          team_name,
+        },
+        {
+          isAuth: true,
+          success: (response) => {
+            const code = response.data.code;
+            if (code === 0) {
+              this.successToast("Share succeed.");
+              this.sharedNumberAnimate = false;
+              setTimeout(() => {
+                this.sharedNumberAnimate = true;
+              }, 10);
+              this.fetchTeamListAndSharedData();
+            }
+          },
+        }
+      );
     },
   },
   computed: {
@@ -482,8 +618,24 @@ export default {
     },
   },
   mounted: function () {
-    this.paperId = location.hash.split("/")[2];
+    const routeParams = this.$route.params;
+    this.paperId = routeParams.id;
+    this.paperTitle = routeParams.paperTitle;
+    // console.log(this.paperId);
+    // console.log(this.paperTitle);
     this.getDetail(this.paperId);
+    this.fetchTeamListAndSharedData();
+    this.ax.post(
+      this.config.testEnvBackEndUrl + "icde/go-paper-detail-page",
+      {
+        is_login: this.$store.state.isLogin,
+        paper_id: this.paperId,
+        paper_title: this.paperTitle,
+      },
+      {
+        isAuth: this.$store.state.isLogin,
+      }
+    );
   },
   // beforeRouteEnter(to, from, next) {
   //   // console.log(to);
@@ -520,12 +672,22 @@ export default {
   height: 56px;
 }
 .commenter {
-  padding: 0 16px;
-  padding-top: 8px;
+  padding: 0 20px;
+  padding-top: 20px;
 }
 .comment {
-  padding: 0 16px;
-  padding-top: 4px;
-  padding-bottom: 12px;
+  margin: 8px 16px;
+  padding: 6px 12px;
+  border: solid 1px rgb(0 0 0 / 28%);
+  border-radius: 4px;
+}
+.team_list_class {
+  position: absolute;
+  z-index: 10;
+  right: 16px;
+}
+.team_item {
+  display: block;
+  width: 100%;
 }
 </style>
